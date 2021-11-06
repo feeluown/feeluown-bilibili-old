@@ -1,7 +1,7 @@
 from feeluown.app import App
 
 
-__alias__ = 'TEMPLATE'
+__alias__ = 'bilibili'
 __version__ = '0.1.dev0'
 __desc__ = ''
 

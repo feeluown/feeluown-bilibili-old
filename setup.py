@@ -3,23 +3,23 @@
 from setuptools import setup
 
 
-from fuo_TEMPLATE import __version__
+from fuo_bilibili import __version__
 
 
 setup(
-    name='fuo_TEMPLATE',
+    name='fuo_bilibili',
     version=__version__,
-    description='feeluown TEMPLATE plugin',
+    description='feeluown bilibili plugin',
 
-    author='AUTHOR',
-    author_email='EMAIL',
+    author='cosven',
+    author_email='yinshaowen241@gmail.com',
 
     # packages=[
-    #     'fuo_TEMPLATE',
+    #     'fuo_bilibili',
     # ],
-    py_modules=['fuo_TEMPLATE'],
-    url='https://github.com/feeluown/feeluown-TEMPLATE',
-    keywords=['feeluown', 'plugin', 'TEMPLATE'],
+    py_modules=['fuo_bilibili'],
+    url='https://github.com/feeluown/feeluown-bilibili',
+    keywords=['feeluown', 'plugin', 'bilibili'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Programming Language :: Python :: 3.6',
@@ -33,7 +33,7 @@ setup(
     ],
     entry_points={
         'fuo.plugins_v1': [
-            'TEMPLATE = fuo_TEMPLATE',
+            'bilibili = fuo_bilibili',
         ]
     },
 )
