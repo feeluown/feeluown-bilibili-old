@@ -15,7 +15,7 @@ from feeluown.utils.sync import AsyncToSync
 
 
 __alias__ = 'bilibili'
-__version__ = '0.1.dev0'
+__version__ = '0.1'
 __desc__ = 'Bilibili'
 
 local = threading.local()
