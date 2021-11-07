@@ -1,8 +1,8 @@
+import asyncio
+import logging
 import sys
 import threading
-import logging
 
-import asyncio
 import aiohttp
 
 from feeluown.app import App
@@ -15,7 +15,7 @@ from feeluown.utils.sync import AsyncToSync
 
 
 __alias__ = 'bilibili'
-__version__ = '0.1'
+__version__ = '0.1.1'
 __desc__ = 'Bilibili'
 
 local = threading.local()

@@ -31,6 +31,7 @@ setup(
     install_requires=[
         'feeluown>=3.7.11',
         'bilibili-api>=9.0.1',
+        'aiohttp',
     ],
     entry_points={
         'fuo.plugins_v1': [
