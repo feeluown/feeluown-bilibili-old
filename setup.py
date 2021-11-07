@@ -3,12 +3,9 @@
 from setuptools import setup
 
 
-from fuo_bilibili import __version__
-
-
 setup(
     name='fuo_bilibili',
-    version=__version__,
+    version='0.1.2',
     description='feeluown bilibili plugin',
 
     author='cosven',
