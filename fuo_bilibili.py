@@ -241,7 +241,7 @@ class DanmakuPainter:
         position = self._app.player.position or 0
         # If position sudden changed a lot (large than 1s),
         # Clear and re-calculate the playing danmakus.
-        if position - self._last_position > 1:
+        if abs(position - self._last_position) > 1:
             self._reset_danmakus_playing()
             self._index_next = self.calc_index(position)
         self._last_position = position
