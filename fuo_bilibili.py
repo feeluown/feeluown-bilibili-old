@@ -1,17 +1,30 @@
 import asyncio
 import logging
+import random
 import sys
+import time
 import threading
+from typing import Optional, List
 
 import aiohttp
 
 from feeluown.app import App
+from feeluown.excs import ProviderNotFound
 from feeluown.library import (
     ProviderV2, ProviderFlags as PF, AbstractProvider,
     ModelType, VideoModel, BriefArtistModel,
 )
 from feeluown.media import Quality, Media, MediaType, VideoAudioManifest
+from feeluown.models import resolve
+from feeluown.utils import aio
 from feeluown.utils.sync import AsyncToSync
+
+try:
+    from PyQt5.QtCore import QRectF, Qt
+    from PyQt5.QtGui import QPainter, QColor
+    from feeluown.gui.helpers import resize_font
+except ImportError:
+    pass
 
 
 __alias__ = 'bilibili'
@@ -22,18 +35,24 @@ local = threading.local()
 logger = logging.getLogger('feeluown.fuo_provider_bilibili')
 
 # Global varaiables
+nprovider: "Optional[BilibiliProvider]" = None
 SOURCE = 'bilibili'
 
 
 def enable(app: App):
-    provider = BilibiliProvider()
+    global provider
     app.library.register(provider)
 
+    if app.GuiMode & app.mode:
+        painter = DanmakuPainter(app)
+        app.ui.mpv_widget.add_gl_painter(painter)
 
 def disable(app: App):
-    provider = app.library.get(SOURCE)
-    if provider is not None:
+    global provider
+    try:
         app.library.deregister(provider)
+    except ProviderNotFound:
+        pass
 
 
 class BilibiliApiPatcher:
@@ -44,6 +63,7 @@ class BilibiliApiPatcher:
         from bilibili_api.utils import network
 
         def fixed_get_session():
+            global local
             session = getattr(local, 'session', None)
             if session is None:
                 session = aiohttp.ClientSession(loop=asyncio.get_event_loop())
@@ -66,16 +86,20 @@ class BilibiliApiPatcher:
         Since we create a aiohttp.ClientSession in threads, ensure aiohttp session
         is closed before loop is closed.
         """
+        global local
         async def wrap_coro(*args, **kwargs):
             try:
                 return await coro(*args, **kwargs)
             finally:
-                await local.session.close()
+                session = getattr(local, 'session', None)
+                if session is not None:
+                    await session.close()
         return AsyncToSync(wrap_coro)
 
 
 # Reimport bilibili_api modules
 from bilibili_api.video import Video  # noqa
+from bilibili_api.utils.Danmaku import Danmaku  # noqa
 
 
 patcher = BilibiliApiPatcher()
@@ -135,6 +159,11 @@ class BilibiliProvider(AbstractProvider, ProviderV2):
         q_media_mapping = self._get_or_fetch_q_media_mapping(video)
         return list(q_media_mapping.keys())
 
+    def video_list_danmaku(self, video):
+        v = create_video(video.identifier)
+        pages = self._model_cache_get_or_fetch(video, 'pages')
+        return Sync(v.get_danmakus)(cid=pages[0]['cid'])
+
     def _get_or_fetch_q_media_mapping(self, video):
         v = create_video(video.identifier)
         pages = self._model_cache_get_or_fetch(video, 'pages')
@@ -168,3 +197,161 @@ class BilibiliProvider(AbstractProvider, ProviderV2):
                     else:
                         q_media_mapping[Quality.Video.sd] = media
         return q_media_mapping
+
+
+class DanmakuPainter:
+    def __init__(self, app):
+        self._app = app
+
+        # TODO: we should listen playlist.model_changed signal,
+        # but FeelUOwn does not have such signal currently.
+        self._app.player.media_changed.connect(
+            lambda media: aio.run_fn(self.on_media_changed, media), weak=False)
+
+        self._danmakus: List[Danmaku] = []
+        self._index_next = 0  # The index of next danmaku
+        # Currently playing danmakus
+        # [
+        #   [(index, start_ts, step, width), ]
+        #   [(index, start_ts, step, width), ]
+        # ]
+
+        self._danmakus_playing_queue_num = 4
+        self._queue_height = 40
+        self._danmakus_playing = []
+        self._danmaku_duration = 10  # Each danmaku live for 10s
+        self._danmaku_margin = 50
+        self._last_position = 0  # Last player position
+
+    def paint(self, opengl_widget):
+        if not self._danmakus:
+            return
+
+        now = time.time()
+
+        painter = QPainter(opengl_widget)
+        painter.save()
+        font = painter.font()
+        font.setPointSize(25)
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+
+        position = self._app.player.position
+        # If position sudden changed a lot (large than 1s),
+        # Clear and re-calculate the playing danmakus.
+        if position - self._last_position > 1:
+            self._reset_danmakus_playing()
+            self._index_next = self.calc_index(position)
+        self._last_position = position
+
+        # Clear outdated danmakus.
+        for q in self._danmakus_playing:
+            for i, (_, start_ts, _, _) in enumerate(q.copy()):
+                if now - start_ts > self._danmaku_duration:
+                    q.pop(i)
+                else:
+                    break
+
+        # Calculate danmakus that should be played this time
+        start_i = i = self._index_next
+        widget_width = opengl_widget.width()
+        while i < len(self._danmakus):
+            danmaku = self._danmakus[i]
+            if danmaku.dm_time > position:
+                self._index_next = i
+                break
+            i += 1
+
+        # Random choose some danmakus to render.
+        i_list = list(range(start_i, self._index_next))
+        random.shuffle(i_list)
+        for i in i_list:
+            for q in self._danmakus_playing:
+                # Check if the queue is valid to store the danmaku.
+                if not q:
+                    ok = True
+                else:
+                    _, start_ts, step, text_width = q[-1]
+                    ok = (text_width + self._danmaku_margin) <= ((now - start_ts) * step)
+                if ok is True:
+                    danmaku = self._danmakus[i]
+                    text = danmaku.text
+                    text_width = fm.horizontalAdvance(text)
+                    step = (widget_width + text_width) / self._danmaku_duration
+                    q.append((i, now, step, text_width))
+                    break
+            else:
+                # No queue can store the danmaku.
+                break
+
+        print(time.time() - now)
+        now = time.time()
+        # Show danmakus in each queue.
+        for i, q in enumerate(self._danmakus_playing):
+            y = i * self._queue_height
+            for index, start_ts, step, text_width in q:
+                x = widget_width - (now - start_ts) * step
+                danmaku = self._danmakus[index]
+                rect = QRectF(x, y, text_width, self._queue_height)
+
+                pen = painter.pen()
+                pen.setColor(QColor(f'#{danmaku.color}'))
+                painter.setPen(pen)
+                font = painter.font()
+                font.setPixelSize(int(danmaku.font_size))
+                painter.setFont(font)
+
+                painter.drawText(rect, Qt.AlignLeft, danmaku.text)
+        painter.restore()
+
+    def on_media_changed(self, _):
+        self.reset()
+
+        metadata = self._app.player.current_metadata
+        uri = metadata.get('uri')
+        if uri is None:
+            return
+
+        # Check if the player is playing a bilibili video.
+        video = resolve(uri)
+        if video.source != SOURCE or \
+           ModelType(video.meta.model_type) is not ModelType.video :
+            return
+
+        global provider
+
+        danmakus = provider.video_list_danmaku(video)
+        danmakus = sorted(danmakus, key=lambda d: d.dm_time)
+        self._danmakus = danmakus
+        self._index_next = 0
+        self._last_position = 0
+
+    def calc_index(self, position):
+        danmakus = self._danmakus
+        if not danmakus:
+            return 0
+
+        # binary search
+        lo, hi = 0, len(danmakus)
+        while lo < hi:
+            mid = (lo + hi)//2
+            if position < danmakus[mid].dm_time:
+                hi = mid
+            else:
+                lo = mid + 1
+        return lo
+
+    def _reset_danmakus_playing(self):
+        self._danmakus_playing.clear()
+        for _ in range(self._danmakus_playing_queue_num):
+            self._danmakus_playing.append([])
+
+    def reset(self):
+        self._danmakus.clear()
+        self._reset_danmakus_playing()
+        self._index_next = 0
+        self._last_position = 0
+
+
+# Singleton
+provider = BilibiliProvider()
