@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='fuo_bilibili',
-    version='0.1.2',
+    version='0.1.3',
     description='feeluown bilibili plugin',
 
     author='cosven',
@@ -26,7 +26,7 @@ setup(
         'Programming Language :: Python :: 3 :: Only',
     ],
     install_requires=[
-        'feeluown>=3.7.11',
+        'feeluown>=3.7.13',
         'bilibili-api>=9.0.1',
         'aiohttp',
     ],
