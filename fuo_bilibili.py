@@ -59,6 +59,7 @@ class BilibiliApiPatcher:
     Try to workaround https://github.com/MoyuScript/bilibili-api/issues/245
     """
     def patch(self):
+        import atexit
         from bilibili_api.utils import network
 
         def fixed_get_session():
@@ -79,6 +80,20 @@ class BilibiliApiPatcher:
                 mod_to_delete.append(mod)
         for mod in mod_to_delete:
             del sys.modules[mod]
+
+        # As `get_session` is patched, sessions can be cleaned correctly.
+        # The `__clean` function can be ignored.
+        #
+        # Moreover, `__clean` raises the following error:
+        #   RuntimeError: There is no current event loop in thread 'MainThread'.
+        try:
+            clean = getattr(network, '__clean')
+        except AttributeError:
+            # __clean is a private function and it can be changed at any time.
+            # Do not raise error if it does not exists.
+            pass
+        else:
+            atexit.unregister(clean)
 
     def sync(self, coro):
         """
